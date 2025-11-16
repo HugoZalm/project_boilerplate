@@ -1,0 +1,2680 @@
+# Wateralmanak Full-Stack Project
+
+## Project Structure
+
+```
+wateralmanak/
+├── docker-compose.yml
+├── .env
+├── README.md
+├── wait-for-it.sh
+├── database/
+│   └── init.sql
+├── liquibase/
+│   ├── Dockerfile
+│   ├── changelog/
+│   │   ├── db.changelog-master.xml
+│   │   ├── changes/
+│   │   │   ├── 001-create-schema.xml
+│   │   │   └── 002-create-voorzieningen-table.xml
+│   └── liquibase.properties
+├── api/
+│   ├── Dockerfile
+│   ├── pom.xml
+│   └── src/
+│       └── main/
+│           ├── java/
+│           │   └── nl/
+│           │       └── wateralmanak/
+│           │           ├── config/
+│           │           │   ├── ApplicationConfig.java
+│           │           │   ├── CorsFilter.java
+│           │           │   ├── DatabaseConfig.java
+│           │           │   └── KeycloakSecurityFilter.java
+│           │           ├── model/
+│           │           │   └── Voorziening.java
+│           │           ├── repository/
+│           │           │   └── VoorzieningRepository.java
+│           │           ├── service/
+│           │           │   └── VoorzieningService.java
+│           │           └── resource/
+│           │               ├── VoorzieningResource.java
+│           │               └── HealthResource.java
+│           ├── resources/
+│           │   ├── application.properties
+│           │   └── META-INF/
+│           │       └── beans.xml
+│           └── webapp/
+│               └── WEB-INF/
+│                   └── web.xml
+├── keycloak/
+│   └── realm-config/
+│       └── wateralmanak-realm.json
+├── frontend/
+│   ├── Dockerfile
+│   ├── .dockerignore
+│   ├── package.json
+│   ├── angular.json
+│   ├── tsconfig.json
+│   ├── tsconfig.app.json
+│   └── src/
+│       ├── main.ts
+│       ├── index.html
+│       ├── styles.css
+│       ├── app/
+│       │   ├── app.config.ts
+│       │   ├── app.routes.ts
+│       │   ├── app.component.ts
+│       │   ├── app.component.html
+│       │   ├── app.component.css
+│       │   ├── services/
+│       │   │   ├── auth.service.ts
+│       │   │   └── voorziening.service.ts
+│       │   ├── interceptors/
+│       │   │   └── auth.interceptor.ts
+│       │   ├── guards/
+│       │   │   └── auth.guard.ts
+│       │   ├── models/
+│       │   │   └── voorziening.model.ts
+│       │   └── components/
+│       │       ├── home/
+│       │       │   ├── home.component.ts
+│       │       │   ├── home.component.html
+│       │       │   └── home.component.css
+│       │       └── voorzieningen/
+│       │           ├── voorzieningen.component.ts
+│       │           ├── voorzieningen.component.html
+│       │           └── voorzieningen.component.css
+│       └── environments/
+│           └── environment.ts
+├── nginx/
+│   ├── Dockerfile
+│   └── nginx.conf
+└── postman/
+    ├── Wateralmanak.postman_collection.json
+    └── Wateralmanak.postman_environment.json
+```
+
+---
+
+## File Contents
+
+### `/docker-compose.yml`
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: wateralmanak-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - wateralmanak-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  liquibase:
+    build: ./liquibase
+    container_name: wateralmanak-liquibase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      LIQUIBASE_COMMAND_USERNAME: ${POSTGRES_USER}
+      LIQUIBASE_COMMAND_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - wateralmanak-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: wateralmanak-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_DB}
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HTTP_ENABLED: true
+      KC_PROXY: edge
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/realm-config:/opt/keycloak/data/import
+    networks:
+      - wateralmanak-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n' >&3;if [ $? -eq 0 ]; then echo 'Healthcheck Successful';exit 0;else echo 'Healthcheck Failed';exit 1;fi;"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  api:
+    build: ./api
+    container_name: wateralmanak-api
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: wateralmanak
+    ports:
+      - "8081:8080"
+    networks:
+      - wateralmanak-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      liquibase:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build: ./frontend
+    container_name: wateralmanak-frontend
+    networks:
+      - wateralmanak-network
+    depends_on:
+      - api
+      - keycloak
+
+  nginx:
+    build: ./nginx
+    container_name: wateralmanak-nginx
+    ports:
+      - "80:80"
+    networks:
+      - wateralmanak-network
+    depends_on:
+      - frontend
+      - api
+      - keycloak
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  wateralmanak-network:
+    driver: bridge
+```
+
+---
+
+### `/.env`
+
+```env
+# PostgreSQL
+POSTGRES_DB=wateralmanak
+POSTGRES_USER=wateralmanak_user
+POSTGRES_PASSWORD=wateralmanak_pass123
+
+# Keycloak Database
+KEYCLOAK_DB=keycloak
+
+# Keycloak Admin
+KEYCLOAK_ADMIN=admin
+KEYCLOAK_ADMIN_PASSWORD=admin123
+```
+
+---
+
+### `/README.md`
+
+```markdown
+# Wateralmanak Project
+
+Full-stack application with PostgreSQL/PostGIS, Liquibase, Java API (JAX-RS/Jersey), Keycloak, Angular 20, and Nginx.
+
+## Prerequisites
+
+- Docker & Docker Compose
+- Postman (for API testing)
+
+## Quick Start
+
+1. Clone the repository
+2. Navigate to project root
+3. Start all services:
+
+```bash
+docker-compose up -d
+```
+
+4. Wait for all services to be healthy (2-3 minutes):
+
+```bash
+docker-compose ps
+```
+
+## Service URLs
+
+- **Frontend**: http://localhost
+- **API**: http://localhost/api
+- **Keycloak**: http://localhost/auth
+- **Keycloak Admin**: http://localhost/auth/admin (admin/admin123)
+
+## Initial Setup
+
+### Keycloak Configuration
+
+The realm is auto-imported. Default users:
+
+- **Admin User**: admin@wateralmanak.nl / admin123 (admin role)
+- **Regular User**: user@wateralmanak.nl / user123 (user role)
+
+### Testing with Postman
+
+1. Import `postman/Wateralmanak.postman_collection.json`
+2. Import `postman/Wateralmanak.postman_environment.json`
+3. Run requests in order
+
+## Development
+
+### Rebuild Services
+
+```bash
+# Rebuild all
+docker-compose up -d --build
+
+# Rebuild specific service
+docker-compose up -d --build api
+```
+
+### View Logs
+
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f api
+```
+
+### Stop Services
+
+```bash
+docker-compose down
+
+# Remove volumes (delete data)
+docker-compose down -v
+```
+
+## Database Access
+
+```bash
+docker exec -it wateralmanak-postgres psql -U wateralmanak_user -d wateralmanak
+```
+
+## Architecture
+
+- **PostgreSQL/PostGIS**: Data persistence with spatial support
+- **Liquibase**: Database version control
+- **Java API**: JAX-RS/Jersey REST services with Keycloak JWT validation
+- **Keycloak**: Identity and access management
+- **Angular 20**: Modern SPA with Keycloak integration
+- **Nginx**: Reverse proxy for all services
+
+## API Endpoints
+
+- `GET /api/voorzieningen` - List all (requires user role)
+- `GET /api/voorzieningen/{id}` - Get by ID (requires user role)
+- `POST /api/voorzieningen` - Create (requires admin role)
+- `PUT /api/voorzieningen/{id}` - Update (requires admin role)
+- `DELETE /api/voorzieningen/{id}` - Delete (requires admin role)
+- `GET /api/health` - Health check (public)
+
+## Security
+
+- All API endpoints (except health) require JWT tokens
+- CORS configured for nginx proxy
+- Roles: `admin`, `user`
+- Groups: `admins`, `users`
+```
+
+---
+
+### `/wait-for-it.sh`
+
+```bash
+#!/usr/bin/env bash
+# Use this script to test if a given TCP host/port are available
+
+set -e
+
+WAITFORIT_cmdname=${0##*/}
+
+echoerr() { if [[ $WAITFORIT_QUIET -ne 1 ]]; then echo "$@" 1>&2; fi }
+
+usage()
+{
+    cat << USAGE >&2
+Usage:
+    $WAITFORIT_cmdname host:port [-s] [-t timeout] [-- command args]
+    -h HOST | --host=HOST       Host or IP under test
+    -p PORT | --port=PORT       TCP port under test
+                                Alternatively, you specify the host and port as host:port
+    -s | --strict               Only execute subcommand if the test succeeds
+    -q | --quiet                Don't output any status messages
+    -t TIMEOUT | --timeout=TIMEOUT
+                                Timeout in seconds, zero for no timeout
+    -- COMMAND ARGS             Execute command with args after the test finishes
+USAGE
+    exit 1
+}
+
+wait_for()
+{
+    if [[ $WAITFORIT_TIMEOUT -gt 0 ]]; then
+        echoerr "$WAITFORIT_cmdname: waiting $WAITFORIT_TIMEOUT seconds for $WAITFORIT_HOST:$WAITFORIT_PORT"
+    else
+        echoerr "$WAITFORIT_cmdname: waiting for $WAITFORIT_HOST:$WAITFORIT_PORT without a timeout"
+    fi
+    WAITFORIT_start_ts=$(date +%s)
+    while :
+    do
+        if [[ $WAITFORIT_ISBUSY -eq 1 ]]; then
+            nc -z $WAITFORIT_HOST $WAITFORIT_PORT
+            WAITFORIT_result=$?
+        else
+            (echo -n > /dev/tcp/$WAITFORIT_HOST/$WAITFORIT_PORT) >/dev/null 2>&1
+            WAITFORIT_result=$?
+        fi
+        if [[ $WAITFORIT_result -eq 0 ]]; then
+            WAITFORIT_end_ts=$(date +%s)
+            echoerr "$WAITFORIT_cmdname: $WAITFORIT_HOST:$WAITFORIT_PORT is available after $((WAITFORIT_end_ts - WAITFORIT_start_ts)) seconds"
+            break
+        fi
+        sleep 1
+    done
+    return $WAITFORIT_result
+}
+
+wait_for_wrapper()
+{
+    # In order to support SIGINT during timeout: http://unix.stackexchange.com/a/169254
+    if [[ $WAITFORIT_QUIET -eq 1 ]]; then
+        timeout $WAITFORIT_BUSYTIMEFLAG $WAITFORIT_TIMEOUT $0 --quiet --child --host=$WAITFORIT_HOST --port=$WAITFORIT_PORT --timeout=$WAITFORIT_TIMEOUT &
+    else
+        timeout $WAITFORIT_BUSYTIMEFLAG $WAITFORIT_TIMEOUT $0 --child --host=$WAITFORIT_HOST --port=$WAITFORIT_PORT --timeout=$WAITFORIT_TIMEOUT &
+    fi
+    WAITFORIT_PID=$!
+    trap "kill -INT -$WAITFORIT_PID" INT
+    wait $WAITFORIT_PID
+    WAITFORIT_RESULT=$?
+    if [[ $WAITFORIT_RESULT -ne 0 ]]; then
+        echoerr "$WAITFORIT_cmdname: timeout occurred after waiting $WAITFORIT_TIMEOUT seconds for $WAITFORIT_HOST:$WAITFORIT_PORT"
+    fi
+    return $WAITFORIT_RESULT
+}
+
+# process arguments
+while [[ $# -gt 0 ]]
+do
+    case "$1" in
+        *:* )
+        WAITFORIT_hostport=(${1//:/ })
+        WAITFORIT_HOST=${WAITFORIT_hostport[0]}
+        WAITFORIT_PORT=${WAITFORIT_hostport[1]}
+        shift 1
+        ;;
+        --child)
+        WAITFORIT_CHILD=1
+        shift 1
+        ;;
+        -q | --quiet)
+        WAITFORIT_QUIET=1
+        shift 1
+        ;;
+        -s | --strict)
+        WAITFORIT_STRICT=1
+        shift 1
+        ;;
+        -h)
+        WAITFORIT_HOST="$2"
+        if [[ $WAITFORIT_HOST == "" ]]; then break; fi
+        shift 2
+        ;;
+        --host=*)
+        WAITFORIT_HOST="${1#*=}"
+        shift 1
+        ;;
+        -p)
+        WAITFORIT_PORT="$2"
+        if [[ $WAITFORIT_PORT == "" ]]; then break; fi
+        shift 2
+        ;;
+        --port=*)
+        WAITFORIT_PORT="${1#*=}"
+        shift 1
+        ;;
+        -t)
+        WAITFORIT_TIMEOUT="$2"
+        if [[ $WAITFORIT_TIMEOUT == "" ]]; then break; fi
+        shift 2
+        ;;
+        --timeout=*)
+        WAITFORIT_TIMEOUT="${1#*=}"
+        shift 1
+        ;;
+        --)
+        shift
+        WAITFORIT_CLI=("$@")
+        break
+        ;;
+        --help)
+        usage
+        ;;
+        *)
+        echoerr "Unknown argument: $1"
+        usage
+        ;;
+    esac
+done
+
+if [[ "$WAITFORIT_HOST" == "" || "$WAITFORIT_PORT" == "" ]]; then
+    echoerr "Error: you need to provide a host and port to test."
+    usage
+fi
+
+WAITFORIT_TIMEOUT=${WAITFORIT_TIMEOUT:-15}
+WAITFORIT_STRICT=${WAITFORIT_STRICT:-0}
+WAITFORIT_CHILD=${WAITFORIT_CHILD:-0}
+WAITFORIT_QUIET=${WAITFORIT_QUIET:-0}
+
+# Check to see if timeout is from busybox?
+WAITFORIT_TIMEOUT_PATH=$(type -p timeout)
+WAITFORIT_TIMEOUT_PATH=$(realpath $WAITFORIT_TIMEOUT_PATH 2>/dev/null || readlink -f $WAITFORIT_TIMEOUT_PATH)
+
+WAITFORIT_BUSYTIMEFLAG=""
+if [[ $WAITFORIT_TIMEOUT_PATH =~ "busybox" ]]; then
+    WAITFORIT_ISBUSY=1
+    # Check if busybox timeout uses -t flag
+    # (recent Alpine versions don't support -t anymore)
+    if timeout &>/dev/stdout | grep -q -e '-t '; then
+        WAITFORIT_BUSYTIMEFLAG="-t"
+    fi
+else
+    WAITFORIT_ISBUSY=0
+fi
+
+if [[ $WAITFORIT_CHILD -gt 0 ]]; then
+    wait_for
+    WAITFORIT_RESULT=$?
+    exit $WAITFORIT_RESULT
+else
+    if [[ $WAITFORIT_TIMEOUT -gt 0 ]]; then
+        wait_for_wrapper
+        WAITFORIT_RESULT=$?
+    else
+        wait_for
+        WAITFORIT_RESULT=$?
+    fi
+fi
+
+if [[ $WAITFORIT_CLI != "" ]]; then
+    if [[ $WAITFORIT_RESULT -ne 0 && $WAITFORIT_STRICT -eq 1 ]]; then
+        echoerr "$WAITFORIT_cmdname: strict mode, refusing to execute subprocess"
+        exit $WAITFORIT_RESULT
+    fi
+    exec "${WAITFORIT_CLI[@]}"
+else
+    exit $WAITFORIT_RESULT
+fi
+```
+
+---
+
+### `/database/init.sql`
+
+```sql
+-- Initialize database
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Create keycloak database if it doesn't exist
+SELECT 'CREATE DATABASE keycloak'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'keycloak')\gexec
+```
+
+---
+
+### `/liquibase/Dockerfile`
+
+```dockerfile
+FROM liquibase/liquibase:4.25
+
+USER root
+
+COPY changelog /liquibase/changelog
+COPY liquibase.properties /liquibase/liquibase.properties
+
+RUN chmod -R 755 /liquibase
+
+USER liquibase
+
+CMD ["--defaults-file=/liquibase/liquibase.properties", "update"]
+```
+
+---
+
+### `/liquibase/liquibase.properties`
+
+```properties
+changeLogFile=changelog/db.changelog-master.xml
+liquibase.command.url=${LIQUIBASE_COMMAND_URL}
+liquibase.command.username=${LIQUIBASE_COMMAND_USERNAME}
+liquibase.command.password=${LIQUIBASE_COMMAND_PASSWORD}
+```
+
+---
+
+### `/liquibase/changelog/db.changelog-master.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+    <include file="changes/001-create-schema.xml" relativeToChangelogFile="true"/>
+    <include file="changes/002-create-voorzieningen-table.xml" relativeToChangelogFile="true"/>
+
+</databaseChangeLog>
+```
+
+---
+
+### `/liquibase/changelog/changes/001-create-schema.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+    <changeSet id="001-create-schema" author="wateralmanak">
+        <sql>
+            CREATE SCHEMA IF NOT EXISTS wateralmanak;
+        </sql>
+        <rollback>
+            DROP SCHEMA IF EXISTS wateralmanak CASCADE;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
+```
+
+---
+
+### `/liquibase/changelog/changes/002-create-voorzieningen-table.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+    <changeSet id="002-create-voorzieningen-table" author="wateralmanak">
+        <sql>
+            CREATE TABLE wateralmanak.voorzieningen (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                naam VARCHAR(255) NOT NULL,
+                beschrijving TEXT,
+                locatie GEOMETRY(Point, 4326),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX idx_voorzieningen_locatie ON wateralmanak.voorzieningen USING GIST(locatie);
+            CREATE INDEX idx_voorzieningen_naam ON wateralmanak.voorzieningen(naam);
+
+            -- Insert sample data
+            INSERT INTO wateralmanak.voorzieningen (naam, beschrijving, locatie) VALUES
+            ('Waterpomp Rotterdam', 'Hoofdwaterpomp centrum', ST_SetSRID(ST_MakePoint(4.4777, 51.9225), 4326)),
+            ('Sluis Kinderdijk', 'Historische sluis', ST_SetSRID(ST_MakePoint(4.6395, 51.8833), 4326)),
+            ('Waterzuivering Delft', 'Moderne zuiveringsinstallatie', ST_SetSRID(ST_MakePoint(4.3571, 52.0116), 4326));
+        </sql>
+        <rollback>
+            DROP TABLE IF EXISTS wateralmanak.voorzieningen;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
+```
+
+---
+
+### `/api/Dockerfile`
+
+```dockerfile
+FROM maven:3.9-eclipse-temurin-21 AS build
+
+WORKDIR /app
+
+COPY pom.xml .
+RUN mvn dependency:go-offline
+
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+COPY --from=build /app/target/wateralmanak-api.war /app/wateralmanak-api.war
+
+EXPOSE 8080
+
+CMD ["java", "-jar", "/app/wateralmanak-api.war"]
+```
+
+---
+
+### `/api/pom.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>nl.wateralmanak</groupId>
+    <artifactId>wateralmanak-api</artifactId>
+    <version>1.0.0</version>
+    <packaging>war</packaging>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jersey.version>3.1.5</jersey.version>
+        <jakarta.version>6.0.0</jakarta.version>
+    </properties>
+
+    <dependencies>
+        <!-- Jakarta EE -->
+        <dependency>
+            <groupId>jakarta.platform</groupId>
+            <artifactId>jakarta.jakartaee-api</artifactId>
+            <version>10.0.0</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Jersey (JAX-RS Implementation) -->
+        <dependency>
+            <groupId>org.glassfish.jersey.containers</groupId>
+            <artifactId>jersey-container-servlet</artifactId>
+            <version>${jersey.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.inject</groupId>
+            <artifactId>jersey-hk2</artifactId>
+            <version>${jersey.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-json-jackson</artifactId>
+            <version>${jersey.version}</version>
+        </dependency>
+
+        <!-- PostgreSQL Driver -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.1</version>
+        </dependency>
+
+        <!-- PostGIS -->
+        <dependency>
+            <groupId>net.postgis</groupId>
+            <artifactId>postgis-jdbc</artifactId>
+            <version>2023.1.0</version>
+        </dependency>
+
+        <!-- HikariCP -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>5.1.0</version>
+        </dependency>
+
+        <!-- JWT -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.12.5</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.12.5</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.12.5</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Jackson for JSON -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.16.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>2.16.1</version>
+        </dependency>
+
+        <!-- SLF4J -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.9</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>wateralmanak-api</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.4.0</version>
+                <configuration>
+                    <failOnMissingWebXml>false</failOnMissingWebXml>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.12.1</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-maven-plugin</artifactId>
+                <version>11.0.19</version>
+                <configuration>
+                    <httpConnector>
+                        <port>8080</port>
+                    </httpConnector>
+                    <webApp>
+                        <contextPath>/</contextPath>
+                    </webApp>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/config/ApplicationConfig.java`
+
+```java
+package nl.wateralmanak.config;
+
+import jakarta.ws.rs.ApplicationPath;
+import jakarta.ws.rs.core.Application;
+import java.util.HashSet;
+import java.util.Set;
+
+@ApplicationPath("/api")
+public class ApplicationConfig extends Application {
+    
+    @Override
+    public Set<Class<?>> getClasses() {
+        Set<Class<?>> classes = new HashSet<>();
+        
+        // Resources
+        classes.add(nl.wateralmanak.resource.VoorzieningResource.class);
+        classes.add(nl.wateralmanak.resource.HealthResource.class);
+        
+        // Filters
+        classes.add(CorsFilter.class);
+        classes.add(KeycloakSecurityFilter.class);
+        
+        return classes;
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/config/CorsFilter.java`
+
+```java
+package nl.wateralmanak.config;
+
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ContainerResponseContext;
+import jakarta.ws.rs.container.ContainerResponseFilter;
+import jakarta.ws.rs.ext.Provider;
+import java.io.IOException;
+
+@Provider
+public class CorsFilter implements ContainerResponseFilter {
+
+    @Override
+    public void filter(ContainerRequestContext requestContext,
+                      ContainerResponseContext responseContext) throws IOException {
+        responseContext.getHeaders().add("Access-Control-Allow-Origin", "*");
+        responseContext.getHeaders().add("Access-Control-Allow-Credentials", "true");
+        responseContext.getHeaders().add("Access-Control-Allow-Headers",
+                "origin, content-type, accept, authorization");
+        responseContext.getHeaders().add("Access-Control-Allow-Methods",
+                "GET, POST, PUT, DELETE, OPTIONS, HEAD");
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/config/DatabaseConfig.java`
+
+```java
+package nl.wateralmanak.config;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import javax.sql.DataSource;
+
+public class DatabaseConfig {
+    
+    private static HikariDataSource dataSource;
+    
+    static {
+        try {
+            Class.forName("org.postgresql.Driver");
+            Class.forName("org.postgis.DriverWrapper");
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("PostgreSQL/PostGIS driver not found", e);
+        }
+        
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(System.getenv().getOrDefault("DB_URL", 
+            "jdbc:postgresql://postgres:5432/wateralmanak"));
+        config.setUsername(System.getenv().getOrDefault("DB_USER", "wateralmanak_user"));
+        config.setPassword(System.getenv().getOrDefault("DB_PASSWORD", "wateralmanak_pass123"));
+        config.setMaximumPoolSize(10);
+        config.setMinimumIdle(2);
+        config.setConnectionTimeout(30000);
+        config.setIdleTimeout(600000);
+        config.setMaxLifetime(1800000);
+        
+        dataSource = new HikariDataSource(config);
+    }
+    
+    public static DataSource getDataSource() {
+        return dataSource;
+    }
+    
+    public static void close() {
+        if (dataSource != null && !dataSource.isClosed()) {
+            dataSource.close();
+        }
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/config/KeycloakSecurityFilter.java`
+
+```java
+package nl.wateralmanak.config;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import jakarta.annotation.Priority;
+import jakarta.ws.rs.Priorities;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ContainerRequestFilter;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.Provider;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+@Provider
+@Priority(Priorities.AUTHENTICATION)
+public class KeycloakSecurityFilter implements ContainerRequestFilter {
+
+    private static final String KEYCLOAK_URL = System.getenv()
+        .getOrDefault("KEYCLOAK_URL", "http://keycloak:8080");
+    private static final String REALM = System.getenv()
+        .getOrDefault("KEYCLOAK_REALM", "wateralmanak");
+    private static PublicKey publicKey;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public void filter(ContainerRequestContext requestContext) {
+        String path = requestContext.getUriInfo().getPath();
+        
+        // Skip authentication for health endpoint and OPTIONS requests
+        if (path.equals("health") || requestContext.getMethod().equals("OPTIONS")) {
+            return;
+        }
+
+        String authHeader = requestContext.getHeaderString("Authorization");
+        
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            abortWithUnauthorized(requestContext);
+            return;
+        }
+
+        String token = authHeader.substring(7);
+        
+        try {
+            Claims claims = validateToken(token);
+            
+            // Extract roles from token
+            @SuppressWarnings("unchecked")
+            Map<String, Object> realmAccess = (Map<String, Object>) claims.get("realm_access");
+            @SuppressWarnings("unchecked")
+            List<String> roles = (List<String>) realmAccess.get("roles");
+            
+            // Store roles in request context for endpoint authorization
+            requestContext.setProperty("roles", roles);
+            requestContext.setProperty("username", claims.get("preferred_username"));
+            
+        } catch (Exception e) {
+            System.err.println("Token validation failed: " + e.getMessage());
+            abortWithUnauthorized(requestContext);
+        }
+    }
+
+    private Claims validateToken(String token) throws Exception {
+        if (publicKey == null) {
+            publicKey = fetchPublicKey();
+        }
+        
+        return Jwts.parser()
+                .verifyWith(publicKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    private PublicKey fetchPublicKey() throws Exception {
+        String certsUrl = KEYCLOAK_URL + "/realms/" + REALM + "/protocol/openid-connect/certs";
+        URL url = new URL(certsUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        
+        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+        StringBuilder response = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            response.append(line);
+        }
+        reader.close();
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Object> jwks = objectMapper.readValue(response.toString(), Map.class);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> keys = (List<Map<String, Object>>) jwks.get("keys");
+        
+        String publicKeyPem = (String) keys.get(0).get("x5c");
+        publicKeyPem = ((List<String>) keys.get(0).get("x5c")).get(0);
+        
+        byte[] decoded = Base64.getDecoder().decode(publicKeyPem);
+        X509EncodedKeySpec spec = new X509EncodedKeySpec(decoded);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return kf.generatePublic(spec);
+    }
+
+    private void abortWithUnauthorized(ContainerRequestContext requestContext) {
+        requestContext.abortWith(
+            Response.status(Response.Status.UNAUTHORIZED)
+                .entity("{\"error\": \"Unauthorized\"}")
+                .build()
+        );
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/model/Voorziening.java`
+
+```java
+package nl.wateralmanak.model;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+public class Voorziening {
+    
+    private UUID id;
+    private String naam;
+    private String beschrijving;
+    private Double longitude;
+    private Double latitude;
+    
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
+    private OffsetDateTime createdAt;
+    
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
+    private OffsetDateTime updatedAt;
+
+    public Voorziening() {
+    }
+
+    public Voorziening(UUID id, String naam, String beschrijving, 
+                      Double longitude, Double latitude,
+                      OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+        this.id = id;
+        this.naam = naam;
+        this.beschrijving = beschrijving;
+        this.longitude = longitude;
+        this.latitude = latitude;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
+    // Getters and Setters
+    public UUID getId() {
+        return id;
+    }
+
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
+    public String getNaam() {
+        return naam;
+    }
+
+    public void setNaam(String naam) {
+        this.naam = naam;
+    }
+
+    public String getBeschrijving() {
+        return beschrijving;
+    }
+
+    public void setBeschrijving(String beschrijving) {
+        this.beschrijving = beschrijving;
+    }
+
+    public Double getLongitude() {
+        return longitude;
+    }
+
+    public void setLongitude(Double longitude) {
+        this.longitude = longitude;
+    }
+
+    public Double getLatitude() {
+        return latitude;
+    }
+
+    public void setLatitude(Double latitude) {
+        this.latitude = latitude;
+    }
+
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(OffsetDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(OffsetDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/repository/VoorzieningRepository.java`
+
+```java
+package nl.wateralmanak.repository;
+
+import nl.wateralmanak.config.DatabaseConfig;
+import nl.wateralmanak.model.Voorziening;
+import org.postgis.PGgeometry;
+import org.postgis.Point;
+
+import java.sql.*;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+public class VoorzieningRepository {
+
+    public List<Voorziening> findAll() throws SQLException {
+        List<Voorziening> voorzieningen = new ArrayList<>();
+        String sql = "SELECT id, naam, beschrijving, ST_X(locatie) as longitude, " +
+                    "ST_Y(locatie) as latitude, created_at, updated_at " +
+                    "FROM wateralmanak.voorzieningen ORDER BY naam";
+        
+        try (Connection conn = DatabaseConfig.getDataSource().getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            while (rs.next()) {
+                voorzieningen.add(mapResultSetToVoorziening(rs));
+            }
+        }
+        
+        return voorzieningen;
+    }
+
+    public Optional<Voorziening> findById(UUID id) throws SQLException {
+        String sql = "SELECT id, naam, beschrijving, ST_X(locatie) as longitude, " +
+                    "ST_Y(locatie) as latitude, created_at, updated_at " +
+                    "FROM wateralmanak.voorzieningen WHERE id = ?";
+        
+        try (Connection conn = DatabaseConfig.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setObject(1, id);
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapResultSetToVoorziening(rs));
+                }
+            }
+        }
+        
+        return Optional.empty();
+    }
+
+    public Voorziening create(Voorziening voorziening) throws SQLException {
+        String sql = "INSERT INTO wateralmanak.voorzieningen (naam, beschrijving, locatie) " +
+                    "VALUES (?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326)) RETURNING id, created_at, updated_at";
+        
+        try (Connection conn = DatabaseConfig.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setString(1, voorziening.getNaam());
+            stmt.setString(2, voorziening.getBeschrijving());
+            stmt.setDouble(3, voorziening.getLongitude());
+            stmt.setDouble(4, voorziening.getLatitude());
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    voorziening.setId((UUID) rs.getObject("id"));
+                    voorziening.setCreatedAt(rs.getObject("created_at", OffsetDateTime.class));
+                    voorziening.setUpdatedAt(rs.getObject("updated_at", OffsetDateTime.class));
+                }
+            }
+        }
+        
+        return voorziening;
+    }
+
+    public Voorziening update(UUID id, Voorziening voorziening) throws SQLException {
+        String sql = "UPDATE wateralmanak.voorzieningen " +
+                    "SET naam = ?, beschrijving = ?, locatie = ST_SetSRID(ST_MakePoint(?, ?), 4326), " +
+                    "updated_at = CURRENT_TIMESTAMP " +
+                    "WHERE id = ? RETURNING updated_at";
+        
+        try (Connection conn = DatabaseConfig.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setString(1, voorziening.getNaam());
+            stmt.setString(2, voorziening.getBeschrijving());
+            stmt.setDouble(3, voorziening.getLongitude());
+            stmt.setDouble(4, voorziening.getLatitude());
+            stmt.setObject(5, id);
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    voorziening.setId(id);
+                    voorziening.setUpdatedAt(rs.getObject("updated_at", OffsetDateTime.class));
+                }
+            }
+        }
+        
+        return voorziening;
+    }
+
+    public boolean delete(UUID id) throws SQLException {
+        String sql = "DELETE FROM wateralmanak.voorzieningen WHERE id = ?";
+        
+        try (Connection conn = DatabaseConfig.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            
+            stmt.setObject(1, id);
+            return stmt.executeUpdate() > 0;
+        }
+    }
+
+    private Voorziening mapResultSetToVoorziening(ResultSet rs) throws SQLException {
+        return new Voorziening(
+            (UUID) rs.getObject("id"),
+            rs.getString("naam"),
+            rs.getString("beschrijving"),
+            rs.getDouble("longitude"),
+            rs.getDouble("latitude"),
+            rs.getObject("created_at", OffsetDateTime.class),
+            rs.getObject("updated_at", OffsetDateTime.class)
+        );
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/service/VoorzieningService.java`
+
+```java
+package nl.wateralmanak.service;
+
+import nl.wateralmanak.model.Voorziening;
+import nl.wateralmanak.repository.VoorzieningRepository;
+
+import java.sql.SQLException;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+public class VoorzieningService {
+    
+    private final VoorzieningRepository repository = new VoorzieningRepository();
+
+    public List<Voorziening> getAllVoorzieningen() throws SQLException {
+        return repository.findAll();
+    }
+
+    public Optional<Voorziening> getVoorzieningById(UUID id) throws SQLException {
+        return repository.findById(id);
+    }
+
+    public Voorziening createVoorziening(Voorziening voorziening) throws SQLException {
+        validateVoorziening(voorziening);
+        return repository.create(voorziening);
+    }
+
+    public Voorziening updateVoorziening(UUID id, Voorziening voorziening) throws SQLException {
+        validateVoorziening(voorziening);
+        
+        if (!repository.findById(id).isPresent()) {
+            throw new IllegalArgumentException("Voorziening not found with id: " + id);
+        }
+        
+        return repository.update(id, voorziening);
+    }
+
+    public boolean deleteVoorziening(UUID id) throws SQLException {
+        return repository.delete(id);
+    }
+
+    private void validateVoorziening(Voorziening voorziening) {
+        if (voorziening.getNaam() == null || voorziening.getNaam().trim().isEmpty()) {
+            throw new IllegalArgumentException("Naam is required");
+        }
+        
+        if (voorziening.getLongitude() == null || voorziening.getLatitude() == null) {
+            throw new IllegalArgumentException("Location coordinates are required");
+        }
+        
+        if (voorziening.getLongitude() < -180 || voorziening.getLongitude() > 180) {
+            throw new IllegalArgumentException("Invalid longitude");
+        }
+        
+        if (voorziening.getLatitude() < -90 || voorziening.getLatitude() > 90) {
+            throw new IllegalArgumentException("Invalid latitude");
+        }
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/resource/VoorzieningResource.java`
+
+```java
+package nl.wateralmanak.resource;
+
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import nl.wateralmanak.model.Voorziening;
+import nl.wateralmanak.service.VoorzieningService;
+
+import java.util.List;
+import java.util.UUID;
+
+@Path("/voorzieningen")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
+public class VoorzieningResource {
+
+    private final VoorzieningService service = new VoorzieningService();
+
+    @GET
+    public Response getAllVoorzieningen(@Context ContainerRequestContext requestContext) {
+        try {
+            // Requires 'user' or 'admin' role
+            if (!hasRole(requestContext, "user") && !hasRole(requestContext, "admin")) {
+                return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\": \"Insufficient permissions\"}")
+                    .build();
+            }
+            
+            List<Voorziening> voorzieningen = service.getAllVoorzieningen();
+            return Response.ok(voorzieningen).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        }
+    }
+
+    @GET
+    @Path("/{id}")
+    public Response getVoorzieningById(@PathParam("id") String id,
+                                      @Context ContainerRequestContext requestContext) {
+        try {
+            // Requires 'user' or 'admin' role
+            if (!hasRole(requestContext, "user") && !hasRole(requestContext, "admin")) {
+                return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\": \"Insufficient permissions\"}")
+                    .build();
+            }
+            
+            UUID uuid = UUID.fromString(id);
+            return service.getVoorzieningById(uuid)
+                .map(v -> Response.ok(v).build())
+                .orElse(Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\": \"Voorziening not found\"}")
+                    .build());
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity("{\"error\": \"Invalid UUID format\"}")
+                .build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        }
+    }
+
+    @POST
+    public Response createVoorziening(Voorziening voorziening,
+                                     @Context ContainerRequestContext requestContext) {
+        try {
+            // Requires 'admin' role
+            if (!hasRole(requestContext, "admin")) {
+                return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\": \"Admin role required\"}")
+                    .build();
+            }
+            
+            Voorziening created = service.createVoorziening(voorziening);
+            return Response.status(Response.Status.CREATED).entity(created).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        }
+    }
+
+    @PUT
+    @Path("/{id}")
+    public Response updateVoorziening(@PathParam("id") String id,
+                                     Voorziening voorziening,
+                                     @Context ContainerRequestContext requestContext) {
+        try {
+            // Requires 'admin' role
+            if (!hasRole(requestContext, "admin")) {
+                return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\": \"Admin role required\"}")
+                    .build();
+            }
+            
+            UUID uuid = UUID.fromString(id);
+            Voorziening updated = service.updateVoorziening(uuid, voorziening);
+            return Response.ok(updated).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        }
+    }
+
+    @DELETE
+    @Path("/{id}")
+    public Response deleteVoorziening(@PathParam("id") String id,
+                                     @Context ContainerRequestContext requestContext) {
+        try {
+            // Requires 'admin' role
+            if (!hasRole(requestContext, "admin")) {
+                return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\": \"Admin role required\"}")
+                    .build();
+            }
+            
+            UUID uuid = UUID.fromString(id);
+            boolean deleted = service.deleteVoorziening(uuid);
+            
+            if (deleted) {
+                return Response.noContent().build();
+            } else {
+                return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\": \"Voorziening not found\"}")
+                    .build();
+            }
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity("{\"error\": \"Invalid UUID format\"}")
+                .build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean hasRole(ContainerRequestContext requestContext, String role) {
+        Object rolesObj = requestContext.getProperty("roles");
+        if (rolesObj instanceof List) {
+            return ((List<String>) rolesObj).contains(role);
+        }
+        return false;
+    }
+}
+```
+
+---
+
+### `/api/src/main/java/nl/wateralmanak/resource/HealthResource.java`
+
+```java
+package nl.wateralmanak.resource;
+
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import nl.wateralmanak.config.DatabaseConfig;
+
+import java.sql.Connection;
+
+@Path("/health")
+@Produces(MediaType.APPLICATION_JSON)
+public class HealthResource {
+
+    @GET
+    public Response health() {
+        try {
+            // Check database connection
+            try (Connection conn = DatabaseConfig.getDataSource().getConnection()) {
+                if (conn.isValid(5)) {
+                    return Response.ok()
+                        .entity("{\"status\": \"UP\", \"database\": \"connected\"}")
+                        .build();
+                }
+            }
+            
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                .entity("{\"status\": \"DOWN\", \"database\": \"disconnected\"}")
+                .build();
+                
+        } catch (Exception e) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                .entity("{\"status\": \"DOWN\", \"error\": \"" + e.getMessage() + "\"}")
+                .build();
+        }
+    }
+}
+```
+
+---
+
+### `/api/src/main/resources/application.properties`
+
+```properties
+# Database Configuration
+db.url=jdbc:postgresql://postgres:5432/wateralmanak
+db.username=wateralmanak_user
+db.password=wateralmanak_pass123
+
+# Keycloak Configuration
+keycloak.url=http://keycloak:8080
+keycloak.realm=wateralmanak
+```
+
+---
+
+### `/api/src/main/resources/META-INF/beans.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee 
+                           https://jakarta.ee/xml/ns/jakartaee/beans_3_0.xsd"
+       version="3.0"
+       bean-discovery-mode="all">
+</beans>
+```
+
+---
+
+### `/api/src/main/webapp/WEB-INF/web.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                             https://jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd"
+         version="5.0">
+
+    <display-name>Wateralmanak API</display-name>
+
+    <servlet>
+        <servlet-name>Jersey Web Application</servlet-name>
+        <servlet-class>org.glassfish.jersey.servlet.ServletContainer</servlet-class>
+        <init-param>
+            <param-name>jakarta.ws.rs.Application</param-name>
+            <param-value>nl.wateralmanak.config.ApplicationConfig</param-value>
+        </init-param>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+
+    <servlet-mapping>
+        <servlet-name>Jersey Web Application</servlet-name>
+        <url-pattern>/api/*</url-pattern>
+    </servlet-mapping>
+
+</web-app>
+```
+
+---
+
+### `/keycloak/realm-config/wateralmanak-realm.json`
+
+```json
+{
+  "realm": "wateralmanak",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 3600,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Administrator role"
+      },
+      {
+        "name": "user",
+        "description": "User role"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "admins",
+      "path": "/admins",
+      "realmRoles": ["admin", "user"]
+    },
+    {
+      "name": "users",
+      "path": "/users",
+      "realmRoles": ["user"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@wateralmanak.nl",
+      "enabled": true,
+      "email": "admin@wateralmanak.nl",
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["admin", "user"],
+      "groups": ["/admins"]
+    },
+    {
+      "username": "user@wateralmanak.nl",
+      "enabled": true,
+      "email": "user@wateralmanak.nl",
+      "emailVerified": true,
+      "firstName": "Regular",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "user123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["user"],
+      "groups": ["/users"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "wateralmanak-frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost/*",
+        "http://localhost:4200/*"
+      ],
+      "webOrigins": [
+        "http://localhost",
+        "http://localhost:4200"
+      ],
+      "attributes": {
+        "access.token.lifespan": "3600"
+      }
+    },
+    {
+      "clientId": "wateralmanak-api",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ]
+}
+```
+
+---
+
+## Part 2: Frontend (Angular 20)
+
+### `/frontend/Dockerfile`
+
+```dockerfile
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist/wateralmanak-frontend/browser /usr/share/nginx/html
+EXPOSE 80
+```
+
+---
+
+### `/frontend/.dockerignore`
+
+```
+node_modules
+dist
+.angular
+.git
+.gitignore
+*.md
+```
+
+---
+
+### `/frontend/package.json`
+
+```json
+{
+  "name": "wateralmanak-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/animations": "^20.0.0",
+    "@angular/common": "^20.0.0",
+    "@angular/compiler": "^20.0.0",
+    "@angular/core": "^20.0.0",
+    "@angular/forms": "^20.0.0",
+    "@angular/platform-browser": "^20.0.0",
+    "@angular/platform-browser-dynamic": "^20.0.0",
+    "@angular/router": "^20.0.0",
+    "keycloak-angular": "^16.0.1",
+    "keycloak-js": "^23.0.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "zone.js": "~0.15.0"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^20.0.0",
+    "@angular/cli": "^20.0.0",
+    "@angular/compiler-cli": "^20.0.0",
+    "@types/node": "^20.0.0",
+    "typescript": "~5.6.2"
+  }
+}
+```
+
+---
+
+### `/frontend/angular.json`
+
+```json
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": "projects",
+  "projects": {
+    "wateralmanak-frontend": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/wateralmanak-frontend",
+            "index": "src/index.html",
+            "browser": "src/main.ts",
+            "polyfills": [
+              "zone.js"
+            ],
+            "tsConfig": "tsconfig.app.json",
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "public"
+              }
+            ],
+            "styles": [
+              "src/styles.css"
+            ],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "500kB",
+                  "maximumError": "1MB"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "2kB",
+                  "maximumError": "4kB"
+                }
+              ],
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "configurations": {
+            "production": {
+              "buildTarget": "wateralmanak-frontend:build:production"
+            },
+            "development": {
+              "buildTarget": "wateralmanak-frontend:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
+### `/frontend/tsconfig.json`
+
+```json
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "outDir": "./dist/out-tsc",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "declaration": false,
+    "experimentalDecorators": true,
+    "moduleResolution": "bundler",
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "useDefineForClassFields": false,
+    "lib": [
+      "ES2022",
+      "dom"
+    ]
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  }
+}
+```
+
+---
+
+### `/frontend/tsconfig.app.json`
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/app",
+    "types": []
+  },
+  "files": [
+    "src/main.ts"
+  ],
+  "include": [
+    "src/**/*.d.ts"
+  ]
+}
+```
+
+---
+
+### `/frontend/src/main.ts`
+
+```typescript
+import { bootstrapApplication } from '@angular/platform-browser';
+import { AppComponent } from './app/app.component';
+import { appConfig } from './app/app.config';
+
+bootstrapApplication(AppComponent, appConfig)
+  .catch((err) => console.error(err));
+```
+
+---
+
+### `/frontend/src/index.html`
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Wateralmanak</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>
+```
+
+---
+
+### `/frontend/src/styles.css`
+
+```css
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #c82333;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+input, textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+th, td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+th {
+  background-color: #007bff;
+  color: white;
+  font-weight: 600;
+}
+
+tr:hover {
+  background-color: #f8f9fa;
+}
+
+.card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.alert {
+  padding: 12px 20px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.alert-error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.alert-success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+```
+
+---
+
+### `/frontend/src/app/app.config.ts`
+
+```typescript
+import { ApplicationConfig, APP_INITIALIZER, provideZoneChangeDetection } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { KeycloakService } from 'keycloak-angular';
+import { routes } from './app.routes';
+import { authInterceptor } from './interceptors/auth.interceptor';
+import { environment } from '../environments/environment';
+
+function initializeKeycloak(keycloak: KeycloakService) {
+  return () =>
+    keycloak.init({
+      config: {
+        url: environment.keycloakUrl,
+        realm: environment.keycloakRealm,
+        clientId: environment.keycloakClientId,
+      },
+      initOptions: {
+        onLoad: 'check-sso',
+        silentCheckSsoRedirectUri:
+          window.location.origin + '/assets/silent-check-sso.html',
+        checkLoginIframe: false,
+      },
+      enableBearerInterceptor: false,
+    });
+}
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideZoneChangeDetection({ eventCoalescing: true }),
+    provideRouter(routes),
+    provideHttpClient(withInterceptors([authInterceptor])),
+    KeycloakService,
+    {
+      provide: APP_INITIALIZER,
+      useFactory: initializeKeycloak,
+      multi: true,
+      deps: [KeycloakService],
+    },
+  ],
+};
+```
+
+---
+
+### `/frontend/src/app/app.routes.ts`
+
+```typescript
+import { Routes } from '@angular/router';
+import { AuthGuard } from './guards/auth.guard';
+import { HomeComponent } from './components/home/home.component';
+import { VoorzieningenComponent } from './components/voorzieningen/voorzieningen.component';
+
+export const routes: Routes = [
+  { path: '', component: HomeComponent },
+  {
+    path: 'voorzieningen',
+    component: VoorzieningenComponent,
+    canActivate: [AuthGuard],
+  },
+  { path: '**', redirectTo: '' },
+];
+```
+
+---
+
+### `/frontend/src/app/app.component.ts`
+
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { AuthService } from './services/auth.service';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.css'],
+})
+export class AppComponent implements OnInit {
+  title = 'Wateralmanak';
+  isLoggedIn = false;
+  username = '';
+  isAdmin = false;
+
+  constructor(private authService: AuthService) {}
+
+  async ngOnInit() {
+    this.isLoggedIn = await this.authService.isLoggedIn();
+    if (this.isLoggedIn) {
+      this.username = await this.authService.getUsername();
+      this.isAdmin = await this.authService.hasRole('admin');
+    }
+  }
+
+  async login() {
+    await this.authService.login();
+  }
+
+  async logout() {
+    await this.authService.logout();
+  }
+}
+```
+
+---
+
+### `/frontend/src/app/app.component.html`
+
+```html
+<nav class="navbar">
+  <div class="nav-container">
+    <h1 class="nav-title">{{ title }}</h1>
+    <ul class="nav-links">
+      <li>
+        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">
+          Home
+        </a>
+      </li>
+      @if (isLoggedIn) {
+        <li>
+          <a routerLink="/voorzieningen" routerLinkActive="active">
+            Voorzieningen
+          </a>
+        </li>
+      }
+    </ul>
+    <div class="nav-auth">
+      @if (isLoggedIn) {
+        <span class="username">
+          {{ username }}
+          @if (isAdmin) {
+            <span class="badge">Admin</span>
+          }
+        </span>
+        <button class="btn-secondary" (click)="logout()">Logout</button>
+      } @else {
+        <button class="btn-primary" (click)="login()">Login</button>
+      }
+    </div>
+  </div>
+</nav>
+
+<main>
+  <router-outlet></router-outlet>
+</main>
+```
+
+---
+
+### `/frontend/src/app/app.component.css`
+
+```css
+.navbar {
+  background-color: #007bff;
+  color: white;
+  padding: 1rem 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.nav-links {
+  display: flex;
+  list-style: none;
+  gap: 2rem;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-links a {
+  color: white;
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.3s;
+}
+
+.nav-links a:hover {
+  opacity: 0.8;
+}
+
+.nav-links a.active {
+  border-bottom: 2px solid white;
+  padding-bottom: 4px;
+}
+
+.nav-auth {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.username {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.badge {
+  background-color: #ffc107;
+  color: #333;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+main {
+  min-height: calc(100vh - 80px);
+}
+```
+
+---
+
+### `/frontend/src/app/services/auth.service.ts`
+
+```typescript
+import { Injectable } from '@angular/core';
+import { KeycloakService } from 'keycloak-angular';
+
+@Injectable({
+  providedIn: 'root',
+})
+export class AuthService {
+  constructor(private keycloakService: KeycloakService) {}
+
+  async isLoggedIn(): Promise<boolean> {
+    return await this.keycloakService.isLoggedIn();
+  }
+
+  async login(): Promise<void> {
+    await this.keycloakService.login();
+  }
+
+  async logout(): Promise<void> {
+    await this.keycloakService.logout(window.location.origin);
+  }
+
+  async getUsername(): Promise<string> {
+    const profile = await this.keycloakService.loadUserProfile();
+    return profile.username || '';
+  }
+
+  async getToken(): Promise<string> {
+    return await this.keycloakService.getToken();
+  }
+
+  async hasRole(role: string): Promise<boolean> {
+    return this.keycloakService.isUserInRole(role);
+  }
+}
+```
+
+---
+
+### `/frontend/src/app/services/voorziening.service.ts`
+
+```typescript
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { Voorziening } from '../models/voorziening.model';
+import { environment } from '../../environments/environment';
+
+@Injectable({
+  providedIn: 'root',
+})
+export class VoorzieningService {
+  private apiUrl = `${environment.apiUrl}/voorzieningen`;
+
+  constructor(private http: HttpClient) {}
+
+  getAll(): Observable<Voorziening[]> {
+    return this.http.get<Voorziening[]>(this.apiUrl);
+  }
+
+  getById(id: string): Observable<Voorziening> {
+    return this.http.get<Voorziening>(`${this.apiUrl}/${id}`);
+  }
+
+  create(voorziening: Voorziening): Observable<Voorziening> {
+    return this.http.post<Voorziening>(this.apiUrl, voorziening);
+  }
+
+  update(id: string, voorziening: Voorziening): Observable<Voorziening> {
+    return this.http.put<Voorziening>(`${this.apiUrl}/${id}`, voorziening);
+  }
+
+  delete(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.apiUrl}/${id}`);
+  }
+}
+```
+
+---
+
+### `/frontend/src/app/interceptors/auth.interceptor.ts`
+
+```typescript
+import { HttpInterceptorFn } from '@angular/common/http';
+import { inject } from '@angular/core';
+import { AuthService } from '../services/auth.service';
+import { from, switchMap } from 'rxjs';
+
+export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  const authService = inject(AuthService);
+
+  return from(authService.getToken()).pipe(
+    switchMap((token) => {
+      if (token) {
+        const clonedRequest = req.clone({
+          setHeaders: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        return next(clonedRequest);
+      }
+      return next(req);
+    })
+  );
+};
+```
+
+---
+
+### `/frontend/src/app/guards/auth.guard.ts`
+
+```typescript
+import { inject } from '@angular/core';
+import { CanActivateFn, Router } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+
+export const AuthGuard: CanActivateFn = async (route, state) => {
+  const authService = inject(AuthService);
+  const router = inject(Router);
+
+  const isLoggedIn = await authService.isLoggedIn();
+
+  if (!isLoggedIn) {
+    await authService.login();
+    return false;
+  }
+
+  return true;
+};
+```
+
+---
+
+### `/frontend/src/app/models/voorziening.model.ts`
+
+```typescript
+export interface Voorziening {
+  id?: string;
+  naam: string;
+  beschrijving: string;
+  longitude: number;
+  latitude: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+```
+
+---
+
+### `/frontend/src/app/components/home/home.component.ts`
+
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { AuthService } from '../../services/auth.service';
+
+@Component({
+  selector: 'app-home',
+  standalone: true,
+  imports: [CommonModule],
+  templateUrl: './home.component.html',
+  styleUrls: ['./home.component.css'],
+})
+export class HomeComponent implements OnInit {
+  isLoggedIn = false;
+
+  constructor(private authService: AuthService) {}
+
+  async ngOnInit() {
+    this.isLoggedIn = await this.authService.isLoggedIn();
+  }
+
+  async login() {
+    await this.authService.login();
+  }
+}
+```
+
+---
+
+### `/frontend/src/app/components/home/home.component.html`
+
+```html
+<div class="container">
+  <div class="hero">
+    <h1>Welcome to Wateralmanak</h1>
+    <p class="subtitle">
+      Manage water facilities and infrastructure with ease
+    </p>
+
+    @if (!isLoggedIn) {
+      <div class="cta">
+        <p>Please login to access the application</p>
+        <button class="btn-primary btn-large" (click)="login()">
+          Login with Keycloak
+        </button>
+      </div>
+    } @else {
+      <div class="features">
+        <div class="feature-card">
+          <h3>📍 Facility Management</h3>
+          <p>View and manage water facilities with location data</p>
+        </div>
+        <div class="feature-card">
+          <h3>🔒 Secure Access</h3>
+          <p>Role-based access control with Keycloak</p>
+        </div>
+        <div class="feature-card">
+          <h3>🗺️ PostGIS Integration</h3>
+          <p>Spatial data support for geographic queries</p>
+        </div>
+      </div>
+    }
+  </div>
+</div>
+```
+
+---
+
+### `/frontend/src/app/components/home/home.component.css`
+
+```css
+.hero {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.hero h1 {
+  font-size: 3rem;
+  color: #007bff;
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  font-size: 1.25rem;
+  color: #666;
+  margin-bottom: 40px;
+}
+
+.cta {
+  margin: 40px 0;
+}
+
+.cta p {
+  font-size: 1.1rem;
+  margin-bottom: 20px;
+}
+
+.btn-large {
+  padding: 15px 40px;
+  font-size: 1.1rem;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 30px;
+  margin-top: 60px;
+}
+
+.feature-card {
+  background: white;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transition: transform 0.3s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.feature-card h3 {
+  font-size: 1.5rem;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.feature-card p {
+  color: #666;
+  line-height: 1.6;
+}
+```
+
+---
+
+Continue to Part 3...

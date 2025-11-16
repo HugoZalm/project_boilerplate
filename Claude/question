@@ -1,0 +1,53 @@
+Can you give me all code and configurations of a project with this specifications
+
+
+- The project runs on docker compose.
+- it should have this services:
+    - postgres/postgis database
+    - liquidbase
+    - java API
+    - keycloak
+    - angular website
+    - nginx reversed proxy
+- the postgres/postgis database:
+    - contains the data
+    - data is persistent through a volume
+- liquidbase
+    - manages the scripts to create and maintaine the database
+- the java API
+    - should use maven
+    - should use open-jdk version 21
+    - should use jaxrs/jakarta with an easy to use implementation (cxf, jersey or jboss), NOT spring boot
+    - should create REST services
+    - should manage cors (for angular frontend through nginx)
+    - should secure its services woth roles from keycloak JWT tokens
+    - should have a 'voorzieningen'-service (full CRUD)
+- Keycloak
+    - should have a 'wateralmanak'-realm
+    - should use a client for angular-frontend
+    - should use a client for api
+    - should use roles: admin and user
+    - should use groups: admins (admin-role) and users (user-role)
+    - users should login with username/password
+    - should provide JWT tokens for frontend and api
+- website
+    - angular 20
+    - login/logout on keycloak
+    - use interceptors for keykloak bearer tokens
+- nginx
+    - should be a reversed proxy
+    - access to frontend, api and keycloak
+
+
+
+I want the full code (all files/directories/configurations etc)
+
+I als want a set of postman-calls to
+- logina on keyclaok where nessecary
+- create a new keycloak user (with roles and credentials)
+- test my api-endpoints
+do all of this in run-sessions
+
+
+Before you start:
+Give me some feedback on this question (enhancements/error/...)
