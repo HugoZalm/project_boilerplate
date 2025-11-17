@@ -1,0 +1,36 @@
+<nav class="navbar">
+  <div class="nav-container">
+    <h1 class="nav-title">{{ title }}</h1>
+    <ul class="nav-links">
+      <li>
+        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">
+          Home
+        </a>
+      </li>
+      @if (isLoggedIn) {
+        <li>
+          <a routerLink="/voorzieningen" routerLinkActive="active">
+            Voorzieningen
+          </a>
+        </li>
+      }
+    </ul>
+    <div class="nav-auth">
+      @if (isLoggedIn) {
+        <span class="username">
+          {{ username }}
+          @if (isAdmin) {
+            <span class="badge">Admin</span>
+          }
+        </span>
+        <button class="btn-secondary" (click)="logout()">Logout</button>
+      } @else {
+        <button class="btn-primary" (click)="login()">Login</button>
+      }
+    </div>
+  </div>
+</nav>
+
+<main>
+  <router-outlet></router-outlet>
+</main>

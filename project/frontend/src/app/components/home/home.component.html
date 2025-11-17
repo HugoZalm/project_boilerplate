@@ -1,0 +1,32 @@
+<div class="container">
+  <div class="hero">
+    <h1>Welcome to Wateralmanak</h1>
+    <p class="subtitle">
+      Manage water facilities and infrastructure with ease
+    </p>
+
+    @if (!isLoggedIn) {
+      <div class="cta">
+        <p>Please login to access the application</p>
+        <button class="btn-primary btn-large" (click)="login()">
+          Login with Keycloak
+        </button>
+      </div>
+    } @else {
+      <div class="features">
+        <div class="feature-card">
+          <h3>📍 Facility Management</h3>
+          <p>View and manage water facilities with location data</p>
+        </div>
+        <div class="feature-card">
+          <h3>🔒 Secure Access</h3>
+          <p>Role-based access control with Keycloak</p>
+        </div>
+        <div class="feature-card">
+          <h3>🗺️ PostGIS Integration</h3>
+          <p>Spatial data support for geographic queries</p>
+        </div>
+      </div>
+    }
+  </div>
+</div>
