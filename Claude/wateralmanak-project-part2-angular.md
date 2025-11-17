@@ -896,10 +896,6 @@ export class HomeComponent implements OnInit {
 
 ---
 
-Continue to Part 3...
-
----
-
 ### `/frontend/src/app/components/voorzieningen/voorzieningen.component.ts`
 
 ```typescript
