@@ -6,7 +6,7 @@
 # Clone or create the project structure
 mkdir wateralmanak && cd wateralmanak
 
-# Make wait-for-it.sh executable
+# Make wait-for-it.sh executable (use git-bash terminal)
 chmod +x wait-for-it.sh
 
 # Start all services
