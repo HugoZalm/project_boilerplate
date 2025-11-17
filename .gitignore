@@ -1,3 +1,4 @@
 /project/frontend/node_modules
 /project/frontend/dist
+/project/frontend/.angular
 /project/frontend/package-lock.json
