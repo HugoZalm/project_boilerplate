@@ -1,0 +1,105 @@
+{
+  "realm": "wateralmanak",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 3600,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Administrator role"
+      },
+      {
+        "name": "user",
+        "description": "User role"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "admins",
+      "path": "/admins",
+      "realmRoles": ["admin", "user"]
+    },
+    {
+      "name": "users",
+      "path": "/users",
+      "realmRoles": ["user"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@wateralmanak.nl",
+      "enabled": true,
+      "email": "admin@wateralmanak.nl",
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["admin", "user"],
+      "groups": ["/admins"]
+    },
+    {
+      "username": "user@wateralmanak.nl",
+      "enabled": true,
+      "email": "user@wateralmanak.nl",
+      "emailVerified": true,
+      "firstName": "Regular",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "user123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["user"],
+      "groups": ["/users"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "wateralmanak-frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost/*",
+        "http://localhost:4200/*"
+      ],
+      "webOrigins": [
+        "http://localhost",
+        "http://localhost:4200"
+      ],
+      "attributes": {
+        "access.token.lifespan": "3600"
+      }
+    },
+    {
+      "clientId": "wateralmanak-api",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ]
+}
