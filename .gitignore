@@ -2,3 +2,5 @@
 /project/frontend/dist
 /project/frontend/.angular
 /project/frontend/package-lock.json
+
+/project/api/target/
