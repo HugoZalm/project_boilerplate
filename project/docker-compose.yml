@@ -48,8 +48,9 @@ services:
       KC_HTTP_ENABLED: true
       KC_PROXY: edge
       KC_HTTP_RELATIVE_PATH: /auth
-      KC_HOSTNAME: localhost
-      # KC_HOSTNAME_URL: http://localhost/auth
+      KC_HOSTNAME: dev.localhost
+      # KC_HOSTNAME_PORT: 80
+      # KC_HOSTNAME_PATH: /auth
     ports:
       - "8080:8080"
     volumes:
@@ -73,8 +74,9 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_URL: http://dev.localhost/auth
       KEYCLOAK_REALM: wateralmanak
+      KEYCLOAK_PUBLIC_KEY: ${KEYCLOAK_PUBLIC_KEY}
     ports:
       - "8081:8080"
     networks:

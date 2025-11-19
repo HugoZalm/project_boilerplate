@@ -81,11 +81,13 @@
       "serviceAccountsEnabled": false,
       "redirectUris": [
         "http://localhost/*",
-        "http://localhost:4200/*"
+        "http://localhost:4200/*",
+        "http://dev.localhost/*"
       ],
       "webOrigins": [
         "http://localhost",
-        "http://localhost:4200"
+        "http://localhost:4200",
+        "http://dev.localhost"
       ],
       "attributes": {
         "access.token.lifespan": "3600"
