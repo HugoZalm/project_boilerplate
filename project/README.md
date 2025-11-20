@@ -29,10 +29,11 @@ docker-compose ps
 
 ## Service URLs
 
-- **Frontend**: http://localhost
-- **API**: http://localhost/api
-- **Keycloak**: http://localhost/auth
-- **Keycloak Admin**: http://localhost/auth/admin (admin/admin123)
+- **Frontend**: http://${APP_URL}
+- **API**: http://${APP_URL}/api
+- **Keycloak**: http://${APP_URL}/auth
+- **Keycloak Admin**: http://${APP_URL}/auth/admin (admin/admin123)
+(${APP_URL} from env-file)
 
 ## Initial Setup
 
