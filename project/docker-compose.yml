@@ -1,13 +1,13 @@
 services:
   postgres:
-    image: postgis/postgis:15-3.3
+    image: postgis/postgis:${POSTGRES_VERSION}
     container_name: wateralmanak-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - ${POSTGRES_PORT}:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -20,25 +20,29 @@ services:
       retries: 5
 
   liquibase:
-    build: ./liquibase
+    build:
+      context: ./liquibase
+      dockerfile: Dockerfile
+      args:
+        LIQUIBASE_VERSION: "${LIQUIBASE_VERSION}"
     container_name: wateralmanak-liquibase
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:${POSTGRES_PORT}/${POSTGRES_DB}
       LIQUIBASE_COMMAND_USERNAME: ${POSTGRES_USER}
       LIQUIBASE_COMMAND_PASSWORD: ${POSTGRES_PASSWORD}
     networks:
       - wateralmanak-network
 
   keycloak:
-    image: quay.io/keycloak/keycloak:23.0
+    image: quay.io/keycloak/keycloak:${KEYCLOAK_VERSION}
     container_name: wateralmanak-keycloak
     command: start-dev --import-realm
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_DB}
+      KC_DB_URL: jdbc:postgresql://postgres:${POSTGRES_PORT}/${KEYCLOAK_DB}
       KC_DB_USERNAME: ${POSTGRES_USER}
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
@@ -48,11 +52,9 @@ services:
       KC_HTTP_ENABLED: true
       KC_PROXY: edge
       KC_HTTP_RELATIVE_PATH: /auth
-      KC_HOSTNAME: dev.localhost
-      # KC_HOSTNAME_PORT: 80
-      # KC_HOSTNAME_PATH: /auth
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME}
     ports:
-      - "8080:8080"
+      - "${KEYCLOAK_PORT}:8080"
     volumes:
       - ./keycloak/realm-config:/opt/keycloak/data/import
     networks:
@@ -68,17 +70,22 @@ services:
       start_period: 90s
 
   api:
-    build: ./api
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      args:
+        MAVEN_VERSION: "${MAVEN_VERSION}"
+        TOMCAT_VERSION: "${TOMCAT_VERSION}"
     container_name: wateralmanak-api
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      DB_URL: jdbc:postgresql://postgres:${POSTGRES_PORT}/${POSTGRES_DB}
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      KEYCLOAK_URL: http://dev.localhost/auth
-      KEYCLOAK_REALM: wateralmanak
+      KEYCLOAK_URL: http://${KEYCLOAK_HOSTNAME}/auth
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_PUBLIC_KEY: ${KEYCLOAK_PUBLIC_KEY}
     ports:
-      - "8081:8080"
+      - "${API_PORT}:8080"
     networks:
       - wateralmanak-network
     depends_on:
@@ -96,7 +103,11 @@ services:
       start_period: 40s
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NODE_VERSION: "${NODE_VERSION}"
     container_name: wateralmanak-frontend
     networks:
       - wateralmanak-network
@@ -105,10 +116,14 @@ services:
       - keycloak
 
   nginx:
-    build: ./nginx
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+      # args:
+      #   NGINX_VERSION: "${NGINX_VERSION}"
     container_name: wateralmanak-nginx
     ports:
-      - "80:80"
+      - "${NGINX_PORT}:80"
     networks:
       - wateralmanak-network
     depends_on:

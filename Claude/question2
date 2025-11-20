@@ -1,0 +1,43 @@
+I have a docker-compose.yaml file to create services.
+I use variables from a .env file (in the same directory)
+And i use Dockerfile to create images in subdirectories
+I pass my variables from docker-compose.yaml to the Dockerfile
+
+Now,
+When i pass 1 variable, 1 works fine
+But if i try to pass 2 variables, the second variable is not recognised.
+
+Below som codesnippets from my compose-file a Dockerfile and .env file
+
+
+#.env
+TOMCAT_VERSION=10-jdk21-temurin
+MAVEN_VERSION=3.9-eclipse-temurin-21
+
+
+# docker-compose.yaml
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      args:
+        MAVEN_VERSION: "${MAVEN_VERSION}"
+        TOMCAT_VERSION: "${TOMCAT_VERSION}"
+    container_name: wateralmanak-api
+
+
+# api/Dockerfile
+ARG MAVEN_VERSION
+FROM maven:${MAVEN_VERSION} AS build
+WORKDIR /app
+COPY pom.xml .
+RUN mvn dependency:go-offline
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+ARG TOMCAT_VERSION
+FROM tomcat:${TOMCAT_VERSION}
+# FROM tomcat:10-jdk21-temurin
+COPY --from=build /app/target/wateralmanak-api.war /usr/local/tomcat/webapps/ROOT.war
+EXPOSE 8080

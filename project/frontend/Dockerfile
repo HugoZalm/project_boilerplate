@@ -1,10 +1,8 @@
-FROM node:20-alpine AS build
-
+ARG NODE_VERSION
+FROM node:${NODE_VERSION} AS build
 WORKDIR /app
-
 COPY package*.json ./
 RUN npm ci
-
 COPY . .
 RUN npm run build
 
