@@ -38,7 +38,7 @@ public class KeycloakSecurityFilter implements ContainerRequestFilter {
         try {
             System.out.println("try to load public key");
             publicKey = loadPublicKeyFromFile();
-            System.out.println("public key loaded: " + publicKey);
+            System.out.println("public key loaded");
         } catch (Exception e) {
             System.err.println("Failed to load public key: " + e.getMessage());
             e.printStackTrace();
@@ -61,30 +61,22 @@ public class KeycloakSecurityFilter implements ContainerRequestFilter {
             return;
         }
 
-System.out.println("A");
         String token = authHeader.substring(7);
-System.out.println("token: " + token);
         
         try {
             Claims claims = validateToken(token);
-System.out.println("B");
             
             // Extract roles from token
             @SuppressWarnings("unchecked")
             Map<String, Object> realmAccess = (Map<String, Object>) claims.get("realm_access");
             if (realmAccess != null) {
-System.out.println("C");
                 @SuppressWarnings("unchecked")
                 List<String> roles = (List<String>) realmAccess.get("roles");
-System.out.println("D");
                 
                 // Store roles in request context for endpoint authorization
                 requestContext.setProperty("roles", roles);
             }
-System.out.println("E");
             requestContext.setProperty("username", claims.get("preferred_username"));
-System.out.println("requestContext: " + requestContext);
-            
         } catch (Exception e) {
             System.err.println("Token validation failed: " + e.getMessage());
             abortWithUnauthorized(requestContext);
@@ -96,64 +88,38 @@ System.out.println("requestContext: " + requestContext);
             throw new Exception("Public key not loaded");
         }
 
-        // JwtParser parser = Jwts.parser()
-        //     .verifyWith(publicKey)
-        //     .build();
-        // System.out.println("DEBUG: Starting JWT parsing...");
-
-        // Claims claims = parser.parseSignedClaims(token).getPayload();
-        // System.out.println("DEBUG: JWT parsed OK!");
-
-        // return claims;
-
-        try {
-            JwtParser parser = Jwts.parser()
-                .verifyWith(publicKey)
-                .build();
-            System.out.println("DEBUG: Parser built successfully");
-            System.out.println("DEBUG key algorithm: " + publicKey.getAlgorithm());
-
-            Jwt<JwsHeader,Claims> jwt = parser.parseSignedClaims(token);
-            System.out.println("DEBUG: Signature OK");
-
-            String kid = jwt.getHeader().getKeyId();
-            System.out.println("DEBUG kid: " + kid);
-            JwsHeader parsedHeader = jwt.getHeader();
-            System.out.println("DEBUG alg: " + parsedHeader.getAlgorithm());
-            System.out.println("DEBUG kid: " + parsedHeader.getKeyId());
-            System.out.println("DEBUG key algorithm: " + publicKey.getAlgorithm());
-
-            Claims claims = jwt.getPayload();
-            System.out.println("DEBUG: Claims parsed: " + claims);
-            System.out.println("DEBUG iss: " + claims.getIssuer());
-            
-            return claims;
-
-        } catch (ExpiredJwtException e) {
-            System.err.println("DEBUG: Token expired: " + e.getMessage());
-            throw e;
-        } catch (MalformedJwtException e) {
-            System.err.println("DEBUG: Token malformed: " + e.getMessage());
-            throw e;
-        } catch (UnsupportedJwtException e) {
-            System.err.println("DEBUG: Unsupported JWT: " + e.getMessage());
-            throw e;
-        } catch (SignatureException | SecurityException e) {
-            System.err.println("DEBUG: Signature validation failed: " + e.getMessage());
-            throw e;
-        } catch (IllegalArgumentException e) {
-            System.err.println("DEBUG: Illegal argument: " + e.getMessage());
-            throw e;
-        } catch (Exception e) {
-            System.err.println("DEBUG: Other JWT error: " + e.getMessage());
-            throw e;
-        }
-
-        // return Jwts.parser()
+        // try {
+        //     JwtParser parser = Jwts.parser()
         //         .verifyWith(publicKey)
-        //         .build()
-        //         .parseSignedClaims(token)
-        //         .getPayload();
+        //         .build();
+        //     Jwt<JwsHeader,Claims> jwt = parser.parseSignedClaims(token);
+        //     Claims claims = jwt.getPayload();
+        //     return claims;
+        // } catch (ExpiredJwtException e) {
+        //     System.err.println("DEBUG: Token expired: " + e.getMessage());
+        //     throw e;
+        // } catch (MalformedJwtException e) {
+        //     System.err.println("DEBUG: Token malformed: " + e.getMessage());
+        //     throw e;
+        // } catch (UnsupportedJwtException e) {
+        //     System.err.println("DEBUG: Unsupported JWT: " + e.getMessage());
+        //     throw e;
+        // } catch (SignatureException | SecurityException e) {
+        //     System.err.println("DEBUG: Signature validation failed: " + e.getMessage());
+        //     throw e;
+        // } catch (IllegalArgumentException e) {
+        //     System.err.println("DEBUG: Illegal argument: " + e.getMessage());
+        //     throw e;
+        // } catch (Exception e) {
+        //     System.err.println("DEBUG: Other JWT error: " + e.getMessage());
+        //     throw e;
+        // }
+
+        return Jwts.parser()
+                .verifyWith(publicKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     private static PublicKey loadPublicKeyFromFile() throws Exception {

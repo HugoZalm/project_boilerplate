@@ -83,40 +83,29 @@ public class KeycloakSecurityFilterJWKS implements ContainerRequestFilter {
 
     private PublicKey fetchPublicKey() throws Exception {
         String certsUrl = KEYCLOAK_URL + "/realms/" + REALM + "/protocol/openid-connect/certs";
-        System.out.println("certsURL: " + certsUrl);
         URL url = new URL(certsUrl);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         
-        System.out.println("A");
         BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-        System.out.println("A1");
         StringBuilder response = new StringBuilder();
-        System.out.println("A2");
         String line;
         while ((line = reader.readLine()) != null) {
-            System.out.println("A3");
             response.append(line);
         }
-        System.out.println("A4");
         reader.close();
         
-        System.out.println("B");
         @SuppressWarnings("unchecked")
         Map<String, Object> jwks = objectMapper.readValue(response.toString(), Map.class);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> keys = (List<Map<String, Object>>) jwks.get("keys");
         
-        System.out.println("C");
         String publicKeyPem = (String) keys.get(0).get("x5c");
         publicKeyPem = ((List<String>) keys.get(0).get("x5c")).get(0);
         
-        System.out.println("publicKeyPem: " + publicKeyPem);
         byte[] decoded = Base64.getDecoder().decode(publicKeyPem);
         X509EncodedKeySpec spec = new X509EncodedKeySpec(decoded);
-        System.out.println("spec: " + spec);
         KeyFactory kf = KeyFactory.getInstance("RSA");
-        System.out.println("D");
         return kf.generatePublic(spec);
     }
 
