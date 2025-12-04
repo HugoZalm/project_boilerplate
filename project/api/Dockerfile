@@ -8,5 +8,5 @@ RUN mvn clean package -DskipTests
 
 FROM tomcat:${TOMCAT_VERSION}
 # FROM tomcat:10-jdk21-temurin
-COPY --from=build /app/target/wateralmanak-api.war /usr/local/tomcat/webapps/ROOT.war
+COPY --from=build /app/target/api.war /usr/local/tomcat/webapps/ROOT.war
 EXPOSE 8080

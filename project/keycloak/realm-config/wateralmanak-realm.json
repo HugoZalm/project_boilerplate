@@ -71,7 +71,7 @@
   ],
   "clients": [
     {
-      "clientId": "wateralmanak-frontend",
+      "clientId": "frontend",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "clientId": "wateralmanak-api",
+      "clientId": "api",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
