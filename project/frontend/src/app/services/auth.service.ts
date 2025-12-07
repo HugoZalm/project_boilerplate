@@ -1,34 +1,33 @@
-import { Injectable } from '@angular/core';
-import { KeycloakService } from 'keycloak-angular';
+import { inject, Injectable } from '@angular/core';
+import Keycloak from 'keycloak-js';
 
 @Injectable({
   providedIn: 'root',
 })
 export class AuthService {
-  constructor(private keycloakService: KeycloakService) {}
+  private readonly keycloak = inject(Keycloak);
+  constructor() {}
 
   async isLoggedIn(): Promise<boolean> {
-    return await this.keycloakService.isLoggedIn();
+    return this.keycloak.authenticated;
   }
 
   async login(): Promise<void> {
-    await this.keycloakService.login();
+    await this.keycloak.login();
   }
 
   async logout(): Promise<void> {
-    await this.keycloakService.logout(window.location.origin);
+    await this.keycloak.logout({ redirectUri: window.location.origin });
   }
 
   async getUsername(): Promise<string> {
-    const profile = await this.keycloakService.loadUserProfile();
+    const profile = await this.keycloak.loadUserProfile();
     return profile.username || '';
   }
 
-  async getToken(): Promise<string> {
-    return await this.keycloakService.getToken();
+  async hasRole(role: string, client?: string): Promise<boolean> {
+    console.log('AUTHSERVICE', this.keycloak.hasRealmRole(role));
+    return await this.keycloak.hasRealmRole(role);
   }
 
-  async hasRole(role: string): Promise<boolean> {
-    return this.keycloakService.isUserInRole(role);
-  }
 }
