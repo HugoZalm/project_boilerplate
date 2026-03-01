@@ -1,0 +1,45 @@
+{
+    "login": {
+        "with_keycloak": "Login with Keycloak"
+    },
+    "menu": {
+        "home": "home",
+        "references": "references",
+        "settings": "settings",
+        "login": "login",
+        "logout": "logout"
+    },
+    "errors": {
+        "Failed to load": "'Failed to load'"
+    },
+    "voorzieningen": {
+        "facility": "facility",
+        "facilities": "facilities",
+        "PlaatsAlmanak": "Location",
+        "Naam": "Name"
+    },
+    "vaarwegen": {
+        "waterway": "waterway",
+        "waterways": "waterways"
+    },
+    "gebruikers": {
+        "user": "user",
+        "users": "users"
+    },
+    "landen": {
+        "country": "country",
+        "countries": "countries"
+    },
+    "provincies": {
+        "district": "district",
+        "districts": "districts"
+    },
+    "labels": {
+        "label": "label",
+        "labels": "labels"
+    },
+    "statussen": {
+        "status": "status",
+        "statusses": "statusses"
+    }
+}

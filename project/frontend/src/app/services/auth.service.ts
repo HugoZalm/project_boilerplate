@@ -30,4 +30,5 @@ export class AuthService {
     return await this.keycloak.hasRealmRole(role);
   }
 
+  
 }

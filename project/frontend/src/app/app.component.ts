@@ -1,7 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from './services/auth.service';
+import { TranslateService } from '@ngx-translate/core';
 
 @Component({
   selector: 'app-root',
@@ -11,12 +12,18 @@ import { AuthService } from './services/auth.service';
   styleUrls: ['./app.component.css'],
 })
 export class AppComponent implements OnInit {
+  private translate = inject(TranslateService);
+
   title = 'Wateralmanak';
   isLoggedIn = false;
   username = '';
   isAdmin = false;
 
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService) {
+    this.translate.addLangs(['en', 'nl']);
+    this.translate.setFallbackLang('nl');
+    this.translate.use('nl');
+  }
 
   async ngOnInit() {
     this.isLoggedIn = await this.authService.isLoggedIn();

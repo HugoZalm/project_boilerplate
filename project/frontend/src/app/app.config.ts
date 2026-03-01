@@ -4,6 +4,8 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { createInterceptorCondition, INCLUDE_BEARER_TOKEN_INTERCEPTOR_CONFIG, IncludeBearerTokenCondition, includeBearerTokenInterceptor, provideKeycloak } from 'keycloak-angular';
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
+import { provideTranslateService } from '@ngx-translate/core';
+import { provideTranslateHttpLoader } from "@ngx-translate/http-loader";
 
 const localhostCondition = createInterceptorCondition<IncludeBearerTokenCondition>({
   urlPattern: /^(http:\/\/dev.localhost\/api)(\/.*)?$/i // Match URLs starting with http://dev.localhost:8181
@@ -34,6 +36,16 @@ export const appConfig: ApplicationConfig = {
     provideKeycloakAngular(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([includeBearerTokenInterceptor])) // Add the configured interceptor
+    provideHttpClient(withInterceptors([
+      includeBearerTokenInterceptor
+    ])),
+    provideTranslateService({
+      loader: provideTranslateHttpLoader({
+        prefix: '/assets/i18n/',
+        suffix: '.json'
+      }),
+      fallbackLang: 'nl',
+      lang: 'nl'
+    }),
   ],
 };

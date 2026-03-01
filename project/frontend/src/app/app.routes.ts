@@ -9,7 +9,7 @@ export const routes: Routes = [
     path: 'voorzieningen',
     component: VoorzieningenComponent,
     canActivate: [canActivateAuthRole],
-    data: { role: 'admin' }
+    data: { role: ['admin'] }
   },
   { path: '**', redirectTo: '' },
 ];

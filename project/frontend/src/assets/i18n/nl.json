@@ -1,0 +1,38 @@
+{
+    "login": {
+        "with_keycloak": "Login met Keycloak"
+    },
+    "menu": {
+        "home": "home",
+        "settings": "instellingen",
+        "references": "referenties",
+        "login": "inloggen",
+        "logout": "uitlogen"
+    },
+    "errors": {
+        "Failed to load": "'Fout bij het laden van'"
+    },
+    "state": {
+        "panels": {
+            "config": {
+                "tooltips": {
+                    "enabled": "",
+                    "disabled": ""
+                }
+            },
+            "layers": {
+                "tooltips": {
+                    "enabled": "",
+                    "disabled": ""
+                }
+            },
+            "selection": {
+                "tooltips": {
+                    "enabled": "",
+                    "disabled": ""
+                }
+            }
+        }
+    }
+
+}
