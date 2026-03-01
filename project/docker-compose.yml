@@ -139,6 +139,7 @@ services:
 
 volumes:
   postgres_data:
+    name: "${APP_NAME}_postgres_data"
     driver: local
 
 networks:

@@ -5,7 +5,7 @@ Full-stack application with
 - Liquibase
 - Java API (JAX-RS/Jersey)
 - Keycloak
-- Angular 20
+- Angular 21
 - Nginx
 
 ## Prerequisites
