@@ -1,15 +1,18 @@
 package nl.wateralmanak.resource;
 
+import jakarta.annotation.security.PermitAll;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import nl.wateralmanak.config.DatabaseConfig;
+import nl.wateralmanak.config.PublicEndpoint;
 
 import java.sql.Connection;
 
 @Path("/health")
+@PublicEndpoint
 @Produces(MediaType.APPLICATION_JSON)
 public class HealthResource {
 

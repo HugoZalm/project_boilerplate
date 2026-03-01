@@ -1,25 +1,21 @@
 package nl.wateralmanak.config;
 
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.Header;
-import io.jsonwebtoken.JwsHeader;
-import io.jsonwebtoken.Jwt;
-import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.SignatureException;
-import io.jsonwebtoken.UnsupportedJwtException;
 import jakarta.annotation.Priority;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
+import jakarta.ws.rs.container.ResourceInfo;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.SecurityContext;
 import jakarta.ws.rs.ext.Provider;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
+import java.security.Principal;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
@@ -45,18 +41,20 @@ public class KeycloakSecurityFilter implements ContainerRequestFilter {
         }
     }
 
+    @Context
+    private ResourceInfo resourceInfo;
+
     @Override
     public void filter(ContainerRequestContext requestContext) {
-        String path = requestContext.getUriInfo().getPath();
         
-        // Skip authentication for health endpoint and OPTIONS requests
-        if (path.equals("health") || requestContext.getMethod().equals("OPTIONS")) {
-            return;
-        }
-
+        boolean isOptionRequest = checkOptionRequest(requestContext);
+        boolean isPublicEndpoint = checkPublicEndpoint();
         String authHeader = requestContext.getHeaderString("Authorization");
-        
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        boolean hasBearerToken = checkBearerToken(authHeader);
+
+        if (isOptionRequest || isPublicEndpoint) {
+            return;
+        } else if (!isPublicEndpoint && !hasBearerToken) {
             abortWithUnauthorized(requestContext);
             return;
         }
@@ -65,22 +63,26 @@ public class KeycloakSecurityFilter implements ContainerRequestFilter {
         
         try {
             Claims claims = validateToken(token);
-            
-            // Extract roles from token
-            @SuppressWarnings("unchecked")
-            Map<String, Object> realmAccess = (Map<String, Object>) claims.get("realm_access");
-            if (realmAccess != null) {
-                @SuppressWarnings("unchecked")
-                List<String> roles = (List<String>) realmAccess.get("roles");
-                
-                // Store roles in request context for endpoint authorization
-                requestContext.setProperty("roles", roles);
-            }
-            requestContext.setProperty("username", claims.get("preferred_username"));
+            setupSecurityContext(requestContext, claims);
         } catch (Exception e) {
             System.err.println("Token validation failed: " + e.getMessage());
             abortWithUnauthorized(requestContext);
         }
+    }
+ 
+    private boolean checkOptionRequest(ContainerRequestContext requestContext) {
+        // String path = requestContext.getUriInfo().getPath();
+        // return (path.equals("health") || requestContext.getMethod().equals("OPTIONS"));
+        return requestContext.getMethod().equals("OPTIONS");
+    }
+
+    private boolean checkPublicEndpoint() {
+        return resourceInfo.getResourceMethod().isAnnotationPresent(PublicEndpoint.class)
+            || resourceInfo.getResourceClass().isAnnotationPresent(PublicEndpoint.class);
+    }
+
+    private boolean checkBearerToken(String authHeader) {
+        return (authHeader != null && authHeader.startsWith("Bearer "));
     }
 
     private Claims validateToken(String token) throws Exception {
@@ -88,39 +90,29 @@ public class KeycloakSecurityFilter implements ContainerRequestFilter {
             throw new Exception("Public key not loaded");
         }
 
-        // try {
-        //     JwtParser parser = Jwts.parser()
-        //         .verifyWith(publicKey)
-        //         .build();
-        //     Jwt<JwsHeader,Claims> jwt = parser.parseSignedClaims(token);
-        //     Claims claims = jwt.getPayload();
-        //     return claims;
-        // } catch (ExpiredJwtException e) {
-        //     System.err.println("DEBUG: Token expired: " + e.getMessage());
-        //     throw e;
-        // } catch (MalformedJwtException e) {
-        //     System.err.println("DEBUG: Token malformed: " + e.getMessage());
-        //     throw e;
-        // } catch (UnsupportedJwtException e) {
-        //     System.err.println("DEBUG: Unsupported JWT: " + e.getMessage());
-        //     throw e;
-        // } catch (SignatureException | SecurityException e) {
-        //     System.err.println("DEBUG: Signature validation failed: " + e.getMessage());
-        //     throw e;
-        // } catch (IllegalArgumentException e) {
-        //     System.err.println("DEBUG: Illegal argument: " + e.getMessage());
-        //     throw e;
-        // } catch (Exception e) {
-        //     System.err.println("DEBUG: Other JWT error: " + e.getMessage());
-        //     throw e;
-        // }
-
         return Jwts.parser()
                 .verifyWith(publicKey)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
     }
+
+    private ContainerRequestContext setupSecurityContext(ContainerRequestContext requestContext, Claims claims) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> realmAccess = (Map<String, Object>) claims.get("realm_access");
+        
+        if (realmAccess != null) {
+            @SuppressWarnings("unchecked")
+            List<String> roles = (List<String>) realmAccess.get("roles");
+            String userName = claims.getSubject();
+            SecurityContext originalContext = requestContext.getSecurityContext();
+            SecurityContext securityContext = createSecurityContext(roles, userName, originalContext);
+            requestContext.setSecurityContext(securityContext);
+        }
+        requestContext.setProperty("username", claims.get("preferred_username"));
+        return requestContext;
+    }
+
 
     private static PublicKey loadPublicKeyFromFile() throws Exception {
         // Try to load from file first
@@ -161,5 +153,31 @@ public class KeycloakSecurityFilter implements ContainerRequestFilter {
                 .entity("{\"error\": \"Unauthorized\"}")
                 .build()
         );
+    }
+
+    private SecurityContext createSecurityContext(List<String> roles, String userName, SecurityContext originalContext) {
+        SecurityContext securityContext = new SecurityContext() {
+
+            @Override
+            public Principal getUserPrincipal() {
+                return () -> userName;
+            }
+
+            @Override
+            public boolean isUserInRole(String role) {
+                return roles.contains(role);
+            }
+
+            @Override
+            public boolean isSecure() {
+                return originalContext.isSecure();
+            }
+
+            @Override
+            public String getAuthenticationScheme() {
+                return "Bearer";
+            }
+        };
+        return securityContext;
     }
 }

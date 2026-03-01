@@ -1,5 +1,6 @@
 package nl.wateralmanak.resource;
 
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
@@ -19,15 +20,9 @@ public class VoorzieningResource {
     private final VoorzieningService service = new VoorzieningService();
 
     @GET
+    @RolesAllowed({ "admin", "user" })
     public Response getAllVoorzieningen(@Context ContainerRequestContext requestContext) {
         try {
-            // Requires 'user' or 'admin' role
-            if (!hasRole(requestContext, "user") && !hasRole(requestContext, "admin")) {
-                return Response.status(Response.Status.FORBIDDEN)
-                    .entity("{\"error\": \"Insufficient permissions\"}")
-                    .build();
-            }
-            
             List<Voorziening> voorzieningen = service.getAllVoorzieningen();
             return Response.ok(voorzieningen).build();
         } catch (Exception e) {
@@ -38,17 +33,11 @@ public class VoorzieningResource {
     }
 
     @GET
+    @RolesAllowed({ "admin", "user" })
     @Path("/{id}")
     public Response getVoorzieningById(@PathParam("id") String id,
                                       @Context ContainerRequestContext requestContext) {
         try {
-            // Requires 'user' or 'admin' role
-            if (!hasRole(requestContext, "user") && !hasRole(requestContext, "admin")) {
-                return Response.status(Response.Status.FORBIDDEN)
-                    .entity("{\"error\": \"Insufficient permissions\"}")
-                    .build();
-            }
-            
             UUID uuid = UUID.fromString(id);
             return service.getVoorzieningById(uuid)
                 .map(v -> Response.ok(v).build())
@@ -67,16 +56,10 @@ public class VoorzieningResource {
     }
 
     @POST
+    @RolesAllowed({ "admin" })
     public Response createVoorziening(Voorziening voorziening,
                                      @Context ContainerRequestContext requestContext) {
         try {
-            // Requires 'admin' role
-            if (!hasRole(requestContext, "admin")) {
-                return Response.status(Response.Status.FORBIDDEN)
-                    .entity("{\"error\": \"Admin role required\"}")
-                    .build();
-            }
-            
             Voorziening created = service.createVoorziening(voorziening);
             return Response.status(Response.Status.CREATED).entity(created).build();
         } catch (IllegalArgumentException e) {
@@ -92,17 +75,11 @@ public class VoorzieningResource {
 
     @PUT
     @Path("/{id}")
+    @RolesAllowed({ "admin" })
     public Response updateVoorziening(@PathParam("id") String id,
                                      Voorziening voorziening,
                                      @Context ContainerRequestContext requestContext) {
         try {
-            // Requires 'admin' role
-            if (!hasRole(requestContext, "admin")) {
-                return Response.status(Response.Status.FORBIDDEN)
-                    .entity("{\"error\": \"Admin role required\"}")
-                    .build();
-            }
-            
             UUID uuid = UUID.fromString(id);
             Voorziening updated = service.updateVoorziening(uuid, voorziening);
             return Response.ok(updated).build();
@@ -119,16 +96,10 @@ public class VoorzieningResource {
 
     @DELETE
     @Path("/{id}")
+    @RolesAllowed({ "admin" })
     public Response deleteVoorziening(@PathParam("id") String id,
                                      @Context ContainerRequestContext requestContext) {
         try {
-            // Requires 'admin' role
-            if (!hasRole(requestContext, "admin")) {
-                return Response.status(Response.Status.FORBIDDEN)
-                    .entity("{\"error\": \"Admin role required\"}")
-                    .build();
-            }
-            
             UUID uuid = UUID.fromString(id);
             boolean deleted = service.deleteVoorziening(uuid);
             
@@ -150,12 +121,12 @@ public class VoorzieningResource {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private boolean hasRole(ContainerRequestContext requestContext, String role) {
-        Object rolesObj = requestContext.getProperty("roles");
-        if (rolesObj instanceof List) {
-            return ((List<String>) rolesObj).contains(role);
-        }
-        return false;
-    }
+    // @SuppressWarnings("unchecked")
+    // private boolean hasRole(ContainerRequestContext requestContext, String role) {
+    //     Object rolesObj = requestContext.getProperty("roles");
+    //     if (rolesObj instanceof List) {
+    //         return ((List<String>) rolesObj).contains(role);
+    //     }
+    //     return false;
+    // }
 }
